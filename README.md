@@ -25,7 +25,7 @@ Usage
 To use `nix-script`, you need to add a header to your file. Here is an example for a haskell file `example.hs`:
 
 ```haskell
-#!nix-script
+#!/usr/bin/env nix-script
 #!> haskell
 #! haskell | text lens optparse-applicative
 #! shell   | nix nix-prefetch-scripts

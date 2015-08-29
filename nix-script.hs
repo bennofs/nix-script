@@ -1,4 +1,4 @@
-#!nix-bang
+#!/usr/bin/env nix-script
 #!> haskell
 #! haskell | text lens
 #! shell   | nix
@@ -37,8 +37,7 @@ languages = [haskell, shell]
 haskell :: LangDef
 haskell = LangDef "haskell" d r i where
   d pkgs = return $
-    "haskellPackages.ghcWithPackages (hs: with hs; [" <> Text.unwords (map mkPkg pkgs) <> "])"
-  mkPkg = Text.concat . over (_tail.mapped._head) toUpper . Text.splitOn "-"
+    "haskellPackages.ghcWithPackages (hs: with hs; [" <> Text.unwords pkgs <> "])"
   r script = ("runhaskell" , [script])
   i script = ("ghci"       , [script])
 
