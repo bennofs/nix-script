@@ -25,14 +25,14 @@ import qualified Data.Text as Text
 
 -- | Information about a languages
 data LangDef = LangDef
-  { name :: String                        -- ^ Name of this language
+  { name :: String                         -- ^ Name of this language
   , deps :: [Text]   -> [Text]             -- ^ Convert langunage-specific dependencies to nix packages
   , run  :: FilePath -> (String, [String]) -- ^ Command to run the given file as script
   , repl :: FilePath -> (String, [String]) -- ^ Command to load the given file in an interpreter
   }
 
 languages :: [LangDef]
-languages = [haskell, shell]
+languages = [haskell, python, javascript, perl, shell]
 
 haskell :: LangDef
 haskell = LangDef "haskell" d r i where
@@ -40,6 +40,24 @@ haskell = LangDef "haskell" d r i where
     "haskellPackages.ghcWithPackages (hs: with hs; [" <> Text.unwords pkgs <> "])"
   r script = ("runhaskell" , [script])
   i script = ("ghci"       , [script])
+
+python :: LangDef
+python = LangDef "python" d r i where
+  d pkgs = "python" : map ("pythonPackages." <>) pkgs
+  r script = ("python" , [script])
+  i script = ("python" , ["-i", script])
+
+javascript :: LangDef
+javascript = LangDef "javascript" d r i where
+  d pkgs = "node" : map ("nodePackages." <>) pkgs
+  r script = ("node" , [script])
+  i script = ("node" , [])
+
+perl :: LangDef
+perl = LangDef "perl" d r i where
+  d pkgs = "perl" : map ("perlPackages." <>) pkgs
+  r script = ("perl" , [script])
+  i script = ("perl" , ["-d", script])
 
 shell :: LangDef
 shell = LangDef "shell" (extraPackages ++) r i where
