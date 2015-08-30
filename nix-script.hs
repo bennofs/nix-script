@@ -43,22 +43,19 @@ haskell = LangDef "haskell" d r i where
 
 python :: LangDef
 python = LangDef "python" d r i where
-  d pkgs = return $
-    Text.unwords (map ("pythonPackages." <>) pkgs)
+  d pkgs = "python" : map ("pythonPackages." <>) pkgs
   r script = ("python" , [script])
   i script = ("python" , ["-i", script])
 
 javascript :: LangDef
 javascript = LangDef "javascript" d r i where
-  d pkgs = return $
-    Text.unwords (map ("nodePackages." <>) pkgs)
+  d pkgs = "node" : map ("nodePackages." <>) pkgs
   r script = ("node" , [script])
   i script = ("node" , [])
 
 perl :: LangDef
 perl = LangDef "perl" d r i where
-  d pkgs = return $
-    Text.unwords (map ("perlPackages." <>) pkgs)
+  d pkgs = "perl" : map ("perlPackages." <>) pkgs
   r script = ("perl" , [script])
   i script = ("perl" , ["-d", script])
 
