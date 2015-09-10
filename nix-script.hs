@@ -23,7 +23,8 @@ import Data.Monoid
 
 import qualified Data.Text as Text
 
--- | Information about a languages
+
+-- | Information about a language
 data LangDef = LangDef
   { name :: String                         -- ^ Name of this language
   , deps :: [Text]   -> [Text]             -- ^ Convert langunage-specific dependencies to nix packages
@@ -31,44 +32,56 @@ data LangDef = LangDef
   , repl :: FilePath -> (String, [String]) -- ^ Command to load the given file in an interpreter
   }
 
+
+basePackages :: [Text]
+basePackages = ["coreutils", "utillinux"]
+
+
 languages :: [LangDef]
 languages = [haskell, python, javascript, perl, shell]
 
 haskell :: LangDef
 haskell = LangDef "haskell" d r i where
-  d pkgs = return $
+  d pkgs = pure $
     "haskellPackages.ghcWithPackages (hs: with hs; [" <> Text.unwords pkgs <> "])"
   r script = ("runhaskell" , [script])
   i script = ("ghci"       , [script])
 
 python :: LangDef
 python = LangDef "python" d r i where
-  d pkgs = "python" : map ("pythonPackages." <>) pkgs
+  d pkgs   = "python" : map ("pythonPackages." <>) pkgs
   r script = ("python" , [script])
   i script = ("python" , ["-i", script])
 
 javascript :: LangDef
 javascript = LangDef "javascript" d r i where
-  d pkgs = "node" : map ("nodePackages." <>) pkgs
+  d pkgs   = "node" : map ("nodePackages." <>) pkgs
   r script = ("node" , [script])
   i script = ("node" , [])
 
 perl :: LangDef
 perl = LangDef "perl" d r i where
-  d pkgs = "perl" : map ("perlPackages." <>) pkgs
+  d pkgs   = "perl" : map ("perlPackages." <>) pkgs
   r script = ("perl" , [script])
   i script = ("perl" , ["-d", script])
 
 shell :: LangDef
-shell = LangDef "shell" (extraPackages ++) r i where
+shell = LangDef "shell" d r i where
+  d        = mappend ("bash" : basePackages)
   r script = ("bash", [script])
   i _      = ("bash", [])
-  extraPackages = ["bash", "coreutils", "utillinux", "gitAndTools.hub", "git"]
+
+passthrough :: String -> LangDef
+passthrough name = LangDef name d r i where
+  d        = mappend basePackages
+  r script = (name, [script])
+  i _      = (name, [])
+
 
 lookupLangDef :: String -> IO LangDef
 lookupLangDef n
   | Just def <- find ((n ==) . name) languages = return def
-  | otherwise = fail $ "Unknown language: " ++ n
+  | otherwise = return (passthrough n)
 
 makeDeps :: String -> [String] -> IO [String]
 makeDeps lang ds = lookupLangDef lang <&> \def ->
