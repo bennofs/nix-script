@@ -8,9 +8,13 @@ import System.Environment           (lookupEnv, getProgName, getArgs)
 import System.Process               (callProcess)
 import System.Posix.Escape.Unicode  (escapeMany)
 
-
+-- | Enviroment variables
 type Env   = [String]
+
+-- | Program arguments
 type Args  = [String]
+
+-- | interpreter name and arguments
 type Inter = (String, Args)
 
 
