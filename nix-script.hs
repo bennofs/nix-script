@@ -33,7 +33,7 @@ basePackages = ["coreutils", "utillinux"]
 
 -- | Preserved environment variables
 baseEnv :: [String]
-baseEnv = ["LOCALE_ARCHIVE", "LANG", "TERMINFO", "TERM"]
+baseEnv = ["LOCALE_ARCHIVE", "SSL_CERT_FILE" ,"LANG", "TERMINFO", "TERM"]
 
 
 -- | List of supported language definitions
