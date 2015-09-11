@@ -1,5 +1,5 @@
 -- | A shebang for running scripts inside nix-shell with defined dependencies
-module NixScript where
+module Main where
 
 import Control.Monad        (when)
 import Data.Maybe           (fromMaybe)
@@ -128,6 +128,7 @@ main = do
           (program, args) = interpreter language interactive file
 
       cmd <- makeCommand program args
+      putStrLn $ unwords ("--pure" : "--command" : cmd : "-p" : pkgs)
       callProcess "nix-shell" ("--pure" : "--command" : cmd : "-p" : pkgs)
 
     _ -> fail "missing or invalid header"
