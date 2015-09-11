@@ -1,13 +1,17 @@
 -- | A shebang for running scripts inside nix-shell with defined dependencies
 module Main where
 
-import Control.Monad        (when)
-import Data.Maybe           (fromMaybe)
-import Data.List            (isSuffixOf, isPrefixOf, find)
-import System.Environment   (lookupEnv, getProgName, getArgs)
-import System.Process       (callProcess)
-import System.Posix.IO      (createPipe, fdToHandle)
-import System.IO            (hPutStrLn, hClose, hFlush)
+import Control.Monad                (when)
+import Data.Maybe                   (fromMaybe)
+import Data.List                    (isPrefixOf, find)
+import System.Environment           (lookupEnv, getProgName, getArgs)
+import System.Process               (callProcess)
+import System.Posix.Escape.Unicode  (escapeMany)
+
+
+type Env   = [String]
+type Args  = [String]
+type Inter = (String, Args)
 
 
 -- | Information about a language
@@ -16,9 +20,9 @@ data Language = Language
     -- ^ Name of the language
   , depsTrans :: [String] -> [String]
     -- ^ Transform language-specific dependencies to nix packages
-  , run       :: FilePath -> (String, [String])
+  , run       :: FilePath -> Inter
     -- ^ Command to run the given file as script
-  , repl      :: FilePath -> (String, [String])
+  , repl      :: FilePath -> Inter
     -- ^ Command to load the given file in an interpreter
   }
 
@@ -76,6 +80,7 @@ lookupLang :: String -> Language
 lookupLang n =
   fromMaybe (passthrough n) (find ((n ==) . name) languages)
 
+
 -- | Parse dependencies declaration line
 parseHeader :: String -> [String]
 parseHeader = uncurry trans . split . words
@@ -86,25 +91,24 @@ parseHeader = uncurry trans . split . words
 
 
 -- | Find command to run/load the script
-interpreter :: String -> Bool -> String -> (String, [String])
-interpreter lang interactive = 
+makeInter :: String -> Bool -> String -> Inter
+makeInter lang interactive = 
   (if interactive then repl else run) (lookupLang lang)
 
 
 -- | Create command to add the shell environment
-makeCommand :: String -> [String] -> IO String
-makeCommand program args = do
-  (readFd, writeFd) <- createPipe
-  writeH <- fdToHandle writeFd
-  hPutStrLn writeH (unlines args)
-  hFlush writeH >> hClose writeH
-
-  definitions <- mapM format baseEnv
-  return (env definitions ++ xargs readFd ++ program)
+makeCmd :: Inter -> Args -> Env -> String
+makeCmd (program, args) args' defs =
+  env defs ++ interpreter ++ escapeMany args'
   where
+    interpreter = program ++ " " ++ unwords args ++ " "
     env defs   = "env " ++ unwords defs ++ " "
-    xargs fd   = "xargs -a /proc/self/fd/" ++ show fd ++ " -d '\\n' "
-    format var = maybe "" (\x -> var ++ "=" ++ x) <$> lookupEnv var
+
+
+-- | Create environment variable to run the script with
+makeEnv :: IO Env
+makeEnv = mapM format baseEnv where
+  format var = maybe "" (\x -> var ++ "=" ++ x) <$> lookupEnv var
 
 
 -- | run a script or load it in an interactive interpreter
@@ -115,20 +119,19 @@ main = do
 
   when (null progArgs) (fail $ "usage: " ++ progName ++ " <file>")
 
-  let file    = head progArgs
-      shebang = takeWhile (isPrefixOf "#!") . lines
-      header  = drop 1  . map (drop 2) . shebang
+  let shebang     = takeWhile (isPrefixOf "#!") . lines
+      header      = drop 1  . map (drop 2) . shebang
+      (file:args) = progArgs
 
   script <- readFile file
   case header script of
-    (('>' : identifier) : lines) -> do
-      let pkgs            = concatMap parseHeader lines
-          language        = dropWhile (==' ') identifier
-          interactive     = isSuffixOf "i" progName
-          (program, args) = interpreter language interactive file
+    (('>':identifier) : lines) -> do
+      let pkgs        = concatMap parseHeader lines
+          language    = dropWhile (==' ') identifier
+          interactive = last progName == 'i'
+          interpreter = makeInter language interactive file
 
-      cmd <- makeCommand program args
-      putStrLn $ unwords ("--pure" : "--command" : cmd : "-p" : pkgs)
+      cmd <- makeCmd interpreter args <$> makeEnv
       callProcess "nix-shell" ("--pure" : "--command" : cmd : "-p" : pkgs)
 
     _ -> fail "missing or invalid header"

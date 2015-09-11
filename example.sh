@@ -4,4 +4,5 @@
 
 function a { echo "this is zsh!" }
 a
+echo $#
 echo "your args: $@"
