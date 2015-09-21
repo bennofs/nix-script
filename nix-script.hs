@@ -3,7 +3,8 @@ module Main where
 
 import Control.Monad                (when)
 import Data.Maybe                   (fromMaybe)
-import Data.List                    (isPrefixOf, find)
+import Data.Char                    (isSpace)
+import Data.List                    (isPrefixOf, find, (\\))
 import System.Environment           (lookupEnv, getProgName, getArgs)
 import System.Process               (callProcess)
 import System.Posix.Escape.Unicode  (escapeMany)
@@ -85,6 +86,14 @@ lookupLang n =
   fromMaybe (passthrough n) (find ((n ==) . name) languages)
 
 
+-- | Extract environment declaration from the header
+filterEnv :: [String] -> (Env, [String])
+filterEnv header = (vars env, header \\ env)
+  where
+    vars = concatMap (drop 2 . words)
+    env  = filter (isPrefixOf "env" . dropWhile isSpace) header
+
+
 -- | Parse dependencies declaration line
 parseHeader :: String -> [String]
 parseHeader = uncurry trans . split . words
@@ -110,8 +119,8 @@ makeCmd (program, args) args' defs =
 
 
 -- | Create environment variable to run the script with
-makeEnv :: IO Env
-makeEnv = mapM format baseEnv where
+makeEnv :: Env -> IO Env
+makeEnv extra = mapM format (baseEnv ++ extra) where
   format var = maybe "" (\x -> var ++ "=" ++ x) <$> lookupEnv var
 
 
@@ -130,12 +139,13 @@ main = do
   script <- readFile file
   case header script of
     (('>':identifier) : lines) -> do
-      let pkgs        = concatMap parseHeader lines
-          language    = dropWhile (==' ') identifier
+      let (env, deps) = filterEnv lines
+          pkgs        = concatMap parseHeader deps
+          language    = dropWhile isSpace identifier
           interactive = last progName == 'i'
           interpreter = makeInter language interactive file
 
-      cmd <- makeCmd interpreter args <$> makeEnv
+      cmd <- makeCmd interpreter args <$> makeEnv env
       callProcess "nix-shell" ("--pure" : "--command" : cmd : "-p" : pkgs)
 
     _ -> fail "missing or invalid header"
