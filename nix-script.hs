@@ -1,118 +1,151 @@
-#!/usr/bin/env nix-script
-#!> haskell
-#! haskell | text lens
-#! shell   | nix
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TupleSections     #-}
+-- | A shebang for running scripts inside nix-shell with defined dependencies
+module Main where
 
-import Control.Monad
-import Control.Applicative
-import System.Environment
-import Data.List
-import Data.Text (Text)
-import Data.Text.Lens (_Text)
-import Control.Lens
-import Control.Exception.Lens
-import System.IO.Error.Lens
-import System.Exit
-import System.Posix.Process
-import System.Posix.IO
-import System.IO
-import Data.Char
-import Data.Monoid
+import Control.Monad                (when)
+import Data.Maybe                   (fromMaybe)
+import Data.Char                    (isSpace)
+import Data.List                    (isPrefixOf, find, (\\))
+import System.Environment           (lookupEnv, getProgName, getArgs)
+import System.Process               (callProcess)
+import System.Posix.Escape.Unicode  (escapeMany)
 
-import qualified Data.Text as Text
+-- | Enviroment variables
+type Env   = [String]
 
--- | Information about a languages
-data LangDef = LangDef
-  { name :: String                         -- ^ Name of this language
-  , deps :: [Text]   -> [Text]             -- ^ Convert langunage-specific dependencies to nix packages
-  , run  :: FilePath -> (String, [String]) -- ^ Command to run the given file as script
-  , repl :: FilePath -> (String, [String]) -- ^ Command to load the given file in an interpreter
+-- | Program arguments
+type Args  = [String]
+
+-- | interpreter name and arguments
+type Inter = (String, Args)
+
+
+-- | Information about a language
+data Language = Language
+  { name      :: String
+    -- ^ Name of the language
+  , depsTrans :: [String] -> [String]
+    -- ^ Transform language-specific dependencies to nix packages
+  , run       :: FilePath -> Inter
+    -- ^ Command to run the given file as script
+  , repl      :: FilePath -> Inter
+    -- ^ Command to load the given file in an interpreter
   }
 
-languages :: [LangDef]
+
+-- | Basic packages always present
+basePackages :: [String]
+basePackages = ["coreutils", "utillinux"]
+
+-- | Preserved environment variables
+baseEnv :: [String]
+baseEnv = ["LOCALE_ARCHIVE", "SSL_CERT_FILE" ,"LANG", "TERMINFO", "TERM"]
+
+
+-- | List of supported language definitions
+languages :: [Language]
 languages = [haskell, python, javascript, perl, shell]
+  where
+    haskell = Language "haskell" d r i where
+      d pkgs = pure ("haskellPackages.ghcWithPackages (hs: with hs; [" ++ 
+                     unwords pkgs ++ "])")
+      r script = ("runghc" , [script])
+      i script = ("ghci"   , [script])
 
-haskell :: LangDef
-haskell = LangDef "haskell" d r i where
-  d pkgs = return $
-    "haskellPackages.ghcWithPackages (hs: with hs; [" <> Text.unwords pkgs <> "])"
-  r script = ("runhaskell" , [script])
-  i script = ("ghci"       , [script])
+    python = Language "python" d r i where
+      d pkgs   = "python" : map ("pythonPackages." ++) pkgs
+      r script = ("python" , [script])
+      i script = ("python" , ["-i", script])
 
-python :: LangDef
-python = LangDef "python" d r i where
-  d pkgs = "python" : map ("pythonPackages." <>) pkgs
-  r script = ("python" , [script])
-  i script = ("python" , ["-i", script])
+    javascript = Language "javascript" d r i where
+      d pkgs   = "node" : map ("nodePackages." ++) pkgs
+      r script = ("node" , [script])
+      i script = ("node" , [])
 
-javascript :: LangDef
-javascript = LangDef "javascript" d r i where
-  d pkgs = "node" : map ("nodePackages." <>) pkgs
-  r script = ("node" , [script])
-  i script = ("node" , [])
+    perl = Language "perl" d r i where
+      d pkgs   = "perl" : map ("perlPackages." ++) pkgs
+      r script = ("perl" , [script])
+      i script = ("perl" , ["-d", script])
 
-perl :: LangDef
-perl = LangDef "perl" d r i where
-  d pkgs = "perl" : map ("perlPackages." <>) pkgs
-  r script = ("perl" , [script])
-  i script = ("perl" , ["-d", script])
+    shell = Language "shell" d r i where
+      d        = mappend ("bash" : basePackages)
+      r script = ("bash", [script])
+      i _      = ("bash", [])
 
-shell :: LangDef
-shell = LangDef "shell" (extraPackages ++) r i where
-  r script = ("bash", [script])
-  i _      = ("bash", [])
-  extraPackages = ["bash", "coreutils", "utillinux", "gitAndTools.hub", "git"]
 
-lookupLangDef :: String -> IO LangDef
-lookupLangDef n
-  | Just def <- find ((n ==) . name) languages = return def
-  | otherwise = fail $ "Unknown language: " ++ n
+-- | Create ad-hoc definitions for unknown languages
+passthrough :: String -> Language
+passthrough name = Language name d r i where
+  d        = mappend basePackages
+  r script = (name, [script])
+  i _      = (name, [])
 
-makeDeps :: String -> [String] -> IO [String]
-makeDeps lang ds = lookupLangDef lang <&> \def ->
-  map (view _Text) $ deps def (map (review _Text) ds)
 
-parseDepLine :: [String] -> IO (String, [String])
-parseDepLine (lang:"|":deps) = return (lang, deps)
-parseDepLine x = fail $ "Invalid dependency specification: " ++ unwords x
+-- | Find the appropriate language definition
+lookupLang :: String -> Language
+lookupLang n =
+  fromMaybe (passthrough n) (find ((n ==) . name) languages)
 
-makeCommand :: String -> Bool -> String -> IO (String, [String])
-makeCommand lang interactive file = lookupLangDef lang <&> \def ->
-  (if interactive then repl else run) def file
 
-makeEnvArg :: String -> IO String
-makeEnvArg env = f $ getEnv env <&> \val -> env ++ "=" ++ val where
-  f = handling_ (_IOException.errorType._NoSuchThing) $ return ""
+-- | Extract environment declaration from the header
+filterEnv :: [String] -> (Env, [String])
+filterEnv header = (vars env, header \\ env)
+  where
+    vars = concatMap (drop 2 . words)
+    env  = filter (isPrefixOf "env" . dropWhile isSpace) header
 
-makeXargsCommand :: String -> Int -> IO String
-makeXargsCommand cmd fd = do
-  let xargsFile = "/proc/self/fd/" ++ show fd
-  envStr <- unwords <$> traverse makeEnvArg
-    ["LOCALE_ARCHIVE", "LANG", "TERMINFO", "TERM"]
-  return $ "env " ++ envStr ++ " xargs -a " ++ xargsFile ++ " -d '\\n' " ++ cmd ++ ""
 
+-- | Parse dependencies declaration line
+parseHeader :: String -> [String]
+parseHeader = uncurry trans . split . words
+  where
+    trans lang = depsTrans (lookupLang lang)
+    split (lang : "|" : deps) = (lang, deps)
+    split line = error ("Invalid dependency declaration: " ++ unwords line)
+
+
+-- | Find command to run/load the script
+makeInter :: String -> Bool -> String -> Inter
+makeInter lang interactive = 
+  (if interactive then repl else run) (lookupLang lang)
+
+
+-- | Create command to add the shell environment
+makeCmd :: Inter -> Args -> Env -> String
+makeCmd (program, args) args' defs =
+  env defs ++ interpreter ++ escapeMany args'
+  where
+    interpreter = program ++ " " ++ unwords args ++ " "
+    env defs   = "env " ++ unwords defs ++ " "
+
+
+-- | Create environment variable to run the script with
+makeEnv :: Env -> IO Env
+makeEnv extra = mapM format (baseEnv ++ extra) where
+  format var = maybe "" (\x -> var ++ "=" ++ x) <$> lookupEnv var
+
+
+-- | run a script or load it in an interactive interpreter
 main :: IO ()
 main = do
   progName <- getProgName
-  args <- getArgs
-  let interactive = "i" `isSuffixOf` progName
-  case args ^? _Cons of
-    Nothing -> fail $ "usage: " ++ progName ++ " <file>" ++ "   [missing file name]"
-    Just (file, args') -> do
-      header <- drop 1 . map (drop 2) . takeWhile ("#!" `isPrefixOf`) . lines <$> readFile file
-      case header ^? _Cons of
-        Just ('>':lang, depHeader) -> do
-          deps   <- concat <$> traverse (uncurry makeDeps <=< parseDepLine . words) depHeader
-          let deps' = "findutils" : deps
-          let depArgs = concatMap (\x -> ["-p", x]) deps'
-          (cmd,cmdArgs) <- makeCommand (under _Text Text.strip lang) interactive file
-          (readFd, writeFd) <- createPipe
-          writeH <- fdToHandle writeFd
-          hPutStrLn writeH (unlines cmdArgs) >> hFlush writeH
-          hClose writeH
-          xargsCmd <- makeXargsCommand cmd (fromIntegral readFd)
-          let finalArgs = "--pure" : "--command" : xargsCmd : depArgs
-          executeFile "nix-shell" True finalArgs Nothing
-        _ -> fail "missing language to run as"
+  progArgs <- getArgs
+
+  when (null progArgs) (fail $ "usage: " ++ progName ++ " <file>")
+
+  let shebang     = takeWhile (isPrefixOf "#!") . lines
+      header      = drop 1  . map (drop 2) . shebang
+      (file:args) = progArgs
+
+  script <- readFile file
+  case header script of
+    (('>':identifier) : lines) -> do
+      let (env, deps) = filterEnv lines
+          pkgs        = concatMap parseHeader deps
+          language    = dropWhile isSpace identifier
+          interactive = last progName == 'i'
+          interpreter = makeInter language interactive file
+
+      cmd <- makeCmd interpreter args <$> makeEnv env
+      callProcess "nix-shell" ("--pure" : "--command" : cmd : "-p" : pkgs)
+
+    _ -> fail "missing or invalid header"
