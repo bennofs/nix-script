@@ -43,7 +43,7 @@ baseEnv = ["LOCALE_ARCHIVE", "SSL_CERT_FILE" ,"LANG", "TERMINFO", "TERM"]
 
 -- | List of supported language definitions
 languages :: [Language]
-languages = [haskell, python, javascript, perl, shell]
+languages = [haskell, python 2, python 3, javascript, perl, shell]
   where
     haskell = Language "haskell" d r i where
       d pkgs = pure ("haskellPackages.ghcWithPackages (hs: with hs; [" ++ 
@@ -51,10 +51,12 @@ languages = [haskell, python, javascript, perl, shell]
       r script = ("runghc" , [script])
       i script = ("ghci"   , [script])
 
-    python = Language "python" d r i where
-      d pkgs   = "python" : map ("pythonPackages." ++) pkgs
-      r script = ("python" , [script])
-      i script = ("python" , ["-i", script])
+    python v = Language ("python" ++ show v) d r i where
+      d pkgs   = pure ("python" ++ (show v) ++
+                       ".withPackages (py: with py; [" ++
+                       unwords pkgs ++ "])")
+      r script = ("python" ++ show v, [script])
+      i script = ("python" ++ show v, ["-i", script])
 
     javascript = Language "javascript" d r i where
       d pkgs   = "node" : map ("nodePackages." ++) pkgs
