@@ -64,7 +64,8 @@ languages = [haskell, python 2, python 3, javascript, perl, shell]
       i script = ("node" , [])
 
     perl = Language "perl" d r i where
-      d pkgs   = "perl" : map ("perlPackages." ++) pkgs
+      d pkgs   = pure ("perl.withPackages (pl: with pl; [" ++
+                       unwords pkgs ++ "])")
       r script = ("perl" , [script])
       i script = ("perl" , ["-d", script])
 
