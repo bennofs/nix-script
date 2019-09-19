@@ -5,7 +5,10 @@ pkgs.stdenv.mkDerivation {
   src = ./nix-script.hs;
   phases = [ "buildPhase" "installPhase" "fixupPhase" ];
   buildPhase = ''mkdir -p $out/bin; ghc -O2 $src -o $out/bin/nix-script -odir $TMP'';
-  installPhase = ''ln -s $out/bin/nix-script $out/bin/nix-scripti'';
+  installPhase = ''
+    ln -s $out/bin/nix-script $out/bin/nix-scripti
+    ln -s $out/bin/nix-script $out/bin/nix-scripts
+  '';
   buildInputs = [ (pkgs.haskellPackages.ghcWithPackages (hs: with hs; [posix-escape])) ];
   meta = {
     homepage = https://github.com/bennofs/nix-script;

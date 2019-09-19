@@ -146,9 +146,12 @@ main = do
           pkgs        = concatMap parseHeader deps
           language    = dropWhile isSpace identifier
           interactive = last progName == 'i'
+          shell       = last progName == 's'
           interpreter = makeInter language interactive file
 
       cmd <- makeCmd interpreter args <$> makeEnv env
-      callProcess "nix-shell" ("--pure" : "--command" : cmd : "-p" : pkgs)
+      if shell
+        then callProcess "nix-shell" ("-p" : pkgs)
+        else callProcess "nix-shell" ("--pure" : "--run" : cmd : "-p" : pkgs)
 
     _ -> fail "missing or invalid header"
