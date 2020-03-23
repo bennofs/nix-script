@@ -43,7 +43,7 @@ baseEnv = ["LOCALE_ARCHIVE", "SSL_CERT_FILE" ,"LANG", "TERMINFO", "TERM"]
 
 -- | List of supported language definitions
 languages :: [Language]
-languages = [haskell, python, javascript, perl, shell]
+languages = [haskell, python 2, python 3, javascript, perl, shell]
   where
     haskell = Language "haskell" d r i where
       d pkgs = pure ("haskellPackages.ghcWithPackages (hs: with hs; [" ++ 
@@ -51,10 +51,12 @@ languages = [haskell, python, javascript, perl, shell]
       r script = ("runghc" , [script])
       i script = ("ghci"   , [script])
 
-    python = Language "python" d r i where
-      d pkgs   = "python" : map ("pythonPackages." ++) pkgs
-      r script = ("python" , [script])
-      i script = ("python" , ["-i", script])
+    python v = Language ("python" ++ show v) d r i where
+      d pkgs   = pure ("python" ++ (show v) ++
+                       ".withPackages (py: with py; [" ++
+                       unwords pkgs ++ "])")
+      r script = ("python" ++ show v, [script])
+      i script = ("python" ++ show v, ["-i", script])
 
     javascript = Language "javascript" d r i where
       d pkgs   = "node" : map ("nodePackages." ++) pkgs
@@ -62,7 +64,8 @@ languages = [haskell, python, javascript, perl, shell]
       i script = ("node" , [])
 
     perl = Language "perl" d r i where
-      d pkgs   = "perl" : map ("perlPackages." ++) pkgs
+      d pkgs   = pure ("perl.withPackages (pl: with pl; [" ++
+                       unwords pkgs ++ "])")
       r script = ("perl" , [script])
       i script = ("perl" , ["-d", script])
 
@@ -143,9 +146,12 @@ main = do
           pkgs        = concatMap parseHeader deps
           language    = dropWhile isSpace identifier
           interactive = last progName == 'i'
+          shell       = last progName == 's'
           interpreter = makeInter language interactive file
 
       cmd <- makeCmd interpreter args <$> makeEnv env
-      callProcess "nix-shell" ("--pure" : "--command" : cmd : "-p" : pkgs)
+      if shell
+        then callProcess "nix-shell" ("-p" : pkgs)
+        else callProcess "nix-shell" ("--pure" : "--run" : cmd : "-p" : pkgs)
 
     _ -> fail "missing or invalid header"

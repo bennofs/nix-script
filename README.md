@@ -56,6 +56,25 @@ We can also load the script in `ghci`:
 $ nix-scripti ./example.hs
 ```
 
+or open a nix-shell with the requested packages:
+
+```
+$ nix-scripts ./example.hs
+```
+
+### Supported languges
+
+|  Identifiers         | Language             |
+|:--------------------:|:---------------------|
+| `haskell`            | Haskell              |
+| `python2`, `python3` | Python               |
+| `perl`               | Perl 5               |
+| `javascript`         | JavaScript (node.js) |
+| `shell`              | Shell script (bash)  |
+
+Anything else will be treated as "passthough", meaning the rest of
+the line will be intpreted as nixpkgs attributes as-is.
+
 Contributing
 ------------
 
